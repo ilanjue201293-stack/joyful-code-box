@@ -224,6 +224,34 @@ export const requestPremium = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const requestPremiumManual = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { method: string; username: string; note?: string; gift?: boolean }) => z.object({
+    method: z.string().min(1).max(50),
+    username: z.string().min(1).max(80),
+    note: z.string().max(500).optional(),
+    gift: z.boolean().optional(),
+  }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: prof } = await supabaseAdmin.from("profiles").select("username").eq("id", context.userId).maybeSingle();
+    const uname = (prof as any)?.username ?? context.userId.slice(0, 8);
+    const tag = data.gift ? "🆘 Manual Premium GIFT claim" : "🆘 Manual Premium claim";
+    const body = `User **${uname}** (${context.userId}) says they paid but did not get ${data.gift ? "their gift code" : "Premium"}.\n\n**Payment method:** ${data.method}\n**Payment username/handle:** ${data.username}${data.note ? `\n**Note:** ${data.note}` : ""}\n\nCheck your ${data.method} account for a payment from this user, then grant Premium${data.gift ? " / generate a gift code" : ""} manually.`;
+    await sendWebhook(tag, body, "/admin");
+    const { data: admins } = await supabaseAdmin.from("user_roles").select("user_id").eq("role", "admin");
+    const ids = (admins ?? []).map((a: any) => a.user_id);
+    if (ids.length) {
+      await (supabaseAdmin as any).from("notifications").insert(ids.map((id: string) => ({
+        recipient_id: id,
+        title: tag,
+        body: `${uname} paid via ${data.method} as "${data.username}" but didn't get ${data.gift ? "a gift code" : "Premium"} — please verify.`,
+        link: "/admin",
+        kind: "admin_only",
+      })));
+    }
+    return { ok: true };
+  });
+
 export const createPremiumStore = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { store_name: string; store_logo: string | null; products: any[] }) =>
