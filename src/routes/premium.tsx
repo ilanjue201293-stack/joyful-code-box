@@ -33,9 +33,15 @@ function PremiumPage() {
   const { user, isPremium, refresh } = useAuth();
   const reqFn = useServerFn(requestPremium);
   const redeemFn = useServerFn(redeemPremiumCode);
+  const manualFn = useServerFn(requestPremiumManual);
   const [loading, setLoading] = useState<"paypal" | "ltc" | "gift-paypal" | "gift-ltc" | null>(null);
   const [code, setCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
+  const [manualOpen, setManualOpen] = useState<"premium" | "gift" | null>(null);
+  const [manualMethod, setManualMethod] = useState("PayPal");
+  const [manualUsername, setManualUsername] = useState("");
+  const [manualNote, setManualNote] = useState("");
+  const [manualSending, setManualSending] = useState(false);
 
   const handleRedeem = async () => {
     if (!user) { toast.error("Please sign in first"); return; }
@@ -63,6 +69,13 @@ function PremiumPage() {
     setLoading(gift ? (`gift-${method}` as any) : method);
     try {
       await reqFn({ data: { method, gift } });
+      // Auto-open the payment destination
+      if (method === "paypal" && settings?.premium_paypal_url) {
+        window.open(settings.premium_paypal_url, "_blank", "noopener,noreferrer");
+      } else if (method === "ltc" && settings?.premium_ltc_address) {
+        try { await navigator.clipboard.writeText(settings.premium_ltc_address); } catch {}
+        toast.success("LTC address copied — paste it in your wallet to pay.");
+      }
       toast.success(gift
         ? "Gift request sent! Complete the payment — an admin will send you a Premium code to share."
         : "Request sent! Complete the payment and an admin will activate Premium.");
@@ -71,6 +84,18 @@ function PremiumPage() {
     } finally {
       setLoading(null);
     }
+  };
+
+  const submitManual = async () => {
+    if (!user) { toast.error("Please sign in first"); return; }
+    if (!manualUsername.trim()) { toast.error("Enter your payment username/handle"); return; }
+    setManualSending(true);
+    try {
+      await manualFn({ data: { method: manualMethod, username: manualUsername.trim(), note: manualNote.trim() || undefined, gift: manualOpen === "gift" } });
+      toast.success("Claim sent to admins — you'll get a reply soon.");
+      setManualOpen(null); setManualUsername(""); setManualNote("");
+    } catch (e: any) { toast.error(e.message); }
+    finally { setManualSending(false); }
   };
 
   return (
