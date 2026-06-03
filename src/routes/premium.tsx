@@ -5,8 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useServerFn } from "@tanstack/react-start";
-import { requestPremium, redeemPremiumCode } from "@/lib/api.functions";
+import { requestPremium, redeemPremiumCode, requestPremiumManual } from "@/lib/api.functions";
 import { toast } from "sonner";
 import { Crown, Check, Sparkles, Store, Pin, Zap, Heart, ShieldCheck, Copy, Gift } from "lucide-react";
 
@@ -33,9 +34,15 @@ function PremiumPage() {
   const { user, isPremium, refresh } = useAuth();
   const reqFn = useServerFn(requestPremium);
   const redeemFn = useServerFn(redeemPremiumCode);
+  const manualFn = useServerFn(requestPremiumManual);
   const [loading, setLoading] = useState<"paypal" | "ltc" | "gift-paypal" | "gift-ltc" | null>(null);
   const [code, setCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
+  const [manualOpen, setManualOpen] = useState<"premium" | "gift" | null>(null);
+  const [manualMethod, setManualMethod] = useState("PayPal");
+  const [manualUsername, setManualUsername] = useState("");
+  const [manualNote, setManualNote] = useState("");
+  const [manualSending, setManualSending] = useState(false);
 
   const handleRedeem = async () => {
     if (!user) { toast.error("Please sign in first"); return; }
@@ -63,6 +70,13 @@ function PremiumPage() {
     setLoading(gift ? (`gift-${method}` as any) : method);
     try {
       await reqFn({ data: { method, gift } });
+      // Auto-open the payment destination
+      if (method === "paypal" && settings?.premium_paypal_url) {
+        window.open(settings.premium_paypal_url, "_blank", "noopener,noreferrer");
+      } else if (method === "ltc" && settings?.premium_ltc_address) {
+        try { await navigator.clipboard.writeText(settings.premium_ltc_address); } catch {}
+        toast.success("LTC address copied — paste it in your wallet to pay.");
+      }
       toast.success(gift
         ? "Gift request sent! Complete the payment — an admin will send you a Premium code to share."
         : "Request sent! Complete the payment and an admin will activate Premium.");
@@ -71,6 +85,18 @@ function PremiumPage() {
     } finally {
       setLoading(null);
     }
+  };
+
+  const submitManual = async () => {
+    if (!user) { toast.error("Please sign in first"); return; }
+    if (!manualUsername.trim()) { toast.error("Enter your payment username/handle"); return; }
+    setManualSending(true);
+    try {
+      await manualFn({ data: { method: manualMethod, username: manualUsername.trim(), note: manualNote.trim() || undefined, gift: manualOpen === "gift" } });
+      toast.success("Claim sent to admins — you'll get a reply soon.");
+      setManualOpen(null); setManualUsername(""); setManualNote("");
+    } catch (e: any) { toast.error(e.message); }
+    finally { setManualSending(false); }
   };
 
   return (
@@ -152,30 +178,53 @@ function PremiumPage() {
                   Sign in to get Premium
                 </Button>
               </Link>
-            ) : isPremium ? (
-              <Button size="lg" disabled className="w-full premium-button text-white border-0 opacity-70">
-                <Check className="h-5 w-5 mr-2" /> You already have Premium
-              </Button>
             ) : (
               <div className="space-y-3">
-                <Button
-                  size="lg"
-                  className="w-full premium-button text-white border-0 h-14 text-base"
-                  disabled={loading !== null}
-                  onClick={() => handleBuy("paypal")}
-                >
-                  {loading === "paypal" ? "Sending…" : "💳  Buy with PayPal"}
-                </Button>
-                <Button
-                  size="lg"
-                  className="w-full premium-button-alt text-white border-0 h-14 text-base"
-                  disabled={loading !== null}
-                  onClick={() => handleBuy("ltc")}
-                >
-                  {loading === "ltc" ? "Sending…" : "Ł  Buy with LTC"}
-                </Button>
+                {isPremium ? (
+                  <Button size="lg" disabled className="w-full premium-button text-white border-0 opacity-70">
+                    <Check className="h-5 w-5 mr-2" /> You already have Premium
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="lg"
+                      className="w-full premium-button text-white border-0 h-14 text-base"
+                      disabled={loading !== null}
+                      onClick={() => handleBuy("paypal")}
+                    >
+                      {loading === "paypal" ? "Sending…" : "💳  Buy with PayPal"}
+                    </Button>
+                    <Button
+                      size="lg"
+                      className="w-full premium-button-alt text-white border-0 h-14 text-base"
+                      disabled={loading !== null}
+                      onClick={() => handleBuy("ltc")}
+                    >
+                      {loading === "ltc" ? "Sending…" : "Ł  Buy with LTC"}
+                    </Button>
 
-                {/* Gift Premium */}
+                    {/* Manual claim — "didn't receive premium" */}
+                    <div className="pt-2">
+                      {manualOpen === "premium" ? (
+                        <ManualClaimForm
+                          method={manualMethod} setMethod={setManualMethod}
+                          username={manualUsername} setUsername={setManualUsername}
+                          note={manualNote} setNote={setManualNote}
+                          sending={manualSending} onCancel={() => setManualOpen(null)} onSubmit={submitManual}
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setManualOpen("premium")}
+                          className="w-full text-[11px] text-cyan-300/80 hover:text-cyan-200 underline-offset-4 hover:underline py-2"
+                        >
+                          Did not receive Premium automatically? Ask for it →
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Gift Premium — always available, even for premium users */}
                 <div className="mt-4 pt-4 border-t border-cyan-400/20">
                   <div className="text-xs uppercase tracking-wider text-cyan-300 font-bold flex items-center justify-center gap-1.5 mb-3">
                     <Gift className="h-3.5 w-3.5" /> Gift Premium to a friend
@@ -203,10 +252,30 @@ function PremiumPage() {
                       {loading === "gift-ltc" ? "Sending…" : "🎁 Gift via LTC"}
                     </Button>
                   </div>
+
+                  {/* Manual claim for gift */}
+                  <div className="pt-2">
+                    {manualOpen === "gift" ? (
+                      <ManualClaimForm
+                        gift
+                        method={manualMethod} setMethod={setManualMethod}
+                        username={manualUsername} setUsername={setManualUsername}
+                        note={manualNote} setNote={setManualNote}
+                        sending={manualSending} onCancel={() => setManualOpen(null)} onSubmit={submitManual}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setManualOpen("gift")}
+                        className="w-full text-[11px] text-cyan-300/80 hover:text-cyan-200 underline-offset-4 hover:underline py-2"
+                      >
+                        Paid for a gift but didn't get a code? Ask for it →
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Premium gift code redeem */}
-                {user && (
+                {/* Premium gift code redeem — hidden for already-premium */}
+                {!isPremium && (
                   <div className="mt-4 pt-4 border-t border-cyan-400/20 text-left">
                     <label className="text-xs uppercase tracking-wider text-cyan-300 font-bold flex items-center gap-1.5 mb-2">
                       <Gift className="h-3.5 w-3.5" /> Have a Premium gift code?
@@ -229,7 +298,7 @@ function PremiumPage() {
             )}
 
             {/* Payment details */}
-            {!isPremium && user && (settings?.premium_paypal_url || settings?.premium_ltc_address) && (
+            {user && (settings?.premium_paypal_url || settings?.premium_ltc_address) && (
               <div className="mt-6 space-y-2 text-left text-xs border-t border-cyan-400/20 pt-5">
                 {settings?.premium_paypal_url && (
                   <div className="flex items-center justify-between gap-2 p-2 rounded bg-blue-500/10 border border-blue-400/30">
@@ -361,6 +430,57 @@ function PremiumPage() {
           50% { transform: translateY(-30px) translateX(20px); }
         }
       `}</style>
+    </div>
+  );
+}
+
+function ManualClaimForm(props: {
+  gift?: boolean;
+  method: string; setMethod: (v: string) => void;
+  username: string; setUsername: (v: string) => void;
+  note: string; setNote: (v: string) => void;
+  sending: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="mt-2 p-3 rounded-lg border border-cyan-400/30 bg-cyan-500/5 text-left space-y-2">
+      <div className="text-[11px] uppercase tracking-wider text-cyan-300 font-bold">
+        {props.gift ? "Claim your gift code manually" : "Claim Premium manually"}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Tell us how you paid — an admin will verify it and grant {props.gift ? "your gift code" : "Premium"} as soon as possible.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <select
+          value={props.method}
+          onChange={e => props.setMethod(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+        >
+          <option>PayPal</option>
+          <option>LTC</option>
+          <option>Other</option>
+        </select>
+        <Input
+          value={props.username}
+          onChange={e => props.setUsername(e.target.value)}
+          placeholder="Your PayPal email / LTC tx / handle"
+          className="text-xs h-9"
+        />
+      </div>
+      <Textarea
+        value={props.note}
+        onChange={e => props.setNote(e.target.value)}
+        placeholder="Optional note (amount, date, anything that helps)"
+        rows={2}
+        className="text-xs"
+      />
+      <div className="flex gap-2">
+        <Button size="sm" className="premium-button text-white border-0" onClick={props.onSubmit} disabled={props.sending}>
+          {props.sending ? "Sending…" : "Send claim"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={props.onCancel} disabled={props.sending}>Cancel</Button>
+      </div>
     </div>
   );
 }
