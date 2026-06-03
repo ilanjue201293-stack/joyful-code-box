@@ -177,30 +177,53 @@ function PremiumPage() {
                   Sign in to get Premium
                 </Button>
               </Link>
-            ) : isPremium ? (
-              <Button size="lg" disabled className="w-full premium-button text-white border-0 opacity-70">
-                <Check className="h-5 w-5 mr-2" /> You already have Premium
-              </Button>
             ) : (
               <div className="space-y-3">
-                <Button
-                  size="lg"
-                  className="w-full premium-button text-white border-0 h-14 text-base"
-                  disabled={loading !== null}
-                  onClick={() => handleBuy("paypal")}
-                >
-                  {loading === "paypal" ? "Sending…" : "💳  Buy with PayPal"}
-                </Button>
-                <Button
-                  size="lg"
-                  className="w-full premium-button-alt text-white border-0 h-14 text-base"
-                  disabled={loading !== null}
-                  onClick={() => handleBuy("ltc")}
-                >
-                  {loading === "ltc" ? "Sending…" : "Ł  Buy with LTC"}
-                </Button>
+                {isPremium ? (
+                  <Button size="lg" disabled className="w-full premium-button text-white border-0 opacity-70">
+                    <Check className="h-5 w-5 mr-2" /> You already have Premium
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="lg"
+                      className="w-full premium-button text-white border-0 h-14 text-base"
+                      disabled={loading !== null}
+                      onClick={() => handleBuy("paypal")}
+                    >
+                      {loading === "paypal" ? "Sending…" : "💳  Buy with PayPal"}
+                    </Button>
+                    <Button
+                      size="lg"
+                      className="w-full premium-button-alt text-white border-0 h-14 text-base"
+                      disabled={loading !== null}
+                      onClick={() => handleBuy("ltc")}
+                    >
+                      {loading === "ltc" ? "Sending…" : "Ł  Buy with LTC"}
+                    </Button>
 
-                {/* Gift Premium */}
+                    {/* Manual claim — "didn't receive premium" */}
+                    <div className="pt-2">
+                      {manualOpen === "premium" ? (
+                        <ManualClaimForm
+                          method={manualMethod} setMethod={setManualMethod}
+                          username={manualUsername} setUsername={setManualUsername}
+                          note={manualNote} setNote={setManualNote}
+                          sending={manualSending} onCancel={() => setManualOpen(null)} onSubmit={submitManual}
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setManualOpen("premium")}
+                          className="w-full text-[11px] text-cyan-300/80 hover:text-cyan-200 underline-offset-4 hover:underline py-2"
+                        >
+                          Did not receive Premium automatically? Ask for it →
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Gift Premium — always available, even for premium users */}
                 <div className="mt-4 pt-4 border-t border-cyan-400/20">
                   <div className="text-xs uppercase tracking-wider text-cyan-300 font-bold flex items-center justify-center gap-1.5 mb-3">
                     <Gift className="h-3.5 w-3.5" /> Gift Premium to a friend
@@ -228,10 +251,30 @@ function PremiumPage() {
                       {loading === "gift-ltc" ? "Sending…" : "🎁 Gift via LTC"}
                     </Button>
                   </div>
+
+                  {/* Manual claim for gift */}
+                  <div className="pt-2">
+                    {manualOpen === "gift" ? (
+                      <ManualClaimForm
+                        gift
+                        method={manualMethod} setMethod={setManualMethod}
+                        username={manualUsername} setUsername={setManualUsername}
+                        note={manualNote} setNote={setManualNote}
+                        sending={manualSending} onCancel={() => setManualOpen(null)} onSubmit={submitManual}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setManualOpen("gift")}
+                        className="w-full text-[11px] text-cyan-300/80 hover:text-cyan-200 underline-offset-4 hover:underline py-2"
+                      >
+                        Paid for a gift but didn't get a code? Ask for it →
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Premium gift code redeem */}
-                {user && (
+                {/* Premium gift code redeem — hidden for already-premium */}
+                {!isPremium && (
                   <div className="mt-4 pt-4 border-t border-cyan-400/20 text-left">
                     <label className="text-xs uppercase tracking-wider text-cyan-300 font-bold flex items-center gap-1.5 mb-2">
                       <Gift className="h-3.5 w-3.5" /> Have a Premium gift code?
@@ -254,7 +297,7 @@ function PremiumPage() {
             )}
 
             {/* Payment details */}
-            {!isPremium && user && (settings?.premium_paypal_url || settings?.premium_ltc_address) && (
+            {user && (settings?.premium_paypal_url || settings?.premium_ltc_address) && (
               <div className="mt-6 space-y-2 text-left text-xs border-t border-cyan-400/20 pt-5">
                 {settings?.premium_paypal_url && (
                   <div className="flex items-center justify-between gap-2 p-2 rounded bg-blue-500/10 border border-blue-400/30">
