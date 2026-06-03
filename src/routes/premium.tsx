@@ -433,3 +433,54 @@ function PremiumPage() {
     </div>
   );
 }
+
+function ManualClaimForm(props: {
+  gift?: boolean;
+  method: string; setMethod: (v: string) => void;
+  username: string; setUsername: (v: string) => void;
+  note: string; setNote: (v: string) => void;
+  sending: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="mt-2 p-3 rounded-lg border border-cyan-400/30 bg-cyan-500/5 text-left space-y-2">
+      <div className="text-[11px] uppercase tracking-wider text-cyan-300 font-bold">
+        {props.gift ? "Claim your gift code manually" : "Claim Premium manually"}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Tell us how you paid — an admin will verify it and grant {props.gift ? "your gift code" : "Premium"} as soon as possible.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <select
+          value={props.method}
+          onChange={e => props.setMethod(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+        >
+          <option>PayPal</option>
+          <option>LTC</option>
+          <option>Other</option>
+        </select>
+        <Input
+          value={props.username}
+          onChange={e => props.setUsername(e.target.value)}
+          placeholder="Your PayPal email / LTC tx / handle"
+          className="text-xs h-9"
+        />
+      </div>
+      <Textarea
+        value={props.note}
+        onChange={e => props.setNote(e.target.value)}
+        placeholder="Optional note (amount, date, anything that helps)"
+        rows={2}
+        className="text-xs"
+      />
+      <div className="flex gap-2">
+        <Button size="sm" className="premium-button text-white border-0" onClick={props.onSubmit} disabled={props.sending}>
+          {props.sending ? "Sending…" : "Send claim"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={props.onCancel} disabled={props.sending}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
