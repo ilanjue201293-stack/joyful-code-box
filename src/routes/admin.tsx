@@ -403,11 +403,14 @@ function UsersPanel() {
 function StorePanel() {
   const qc = useQueryClient();
   const delStoreFn = useServerFn(deleteStore);
-  const { data } = useQuery({ queryKey: ["admin-store"], queryFn: async () => (await supabase.from("store_products").select("*").order("created_at", { ascending: false })).data ?? [] });
+  const { data: products } = useQuery({ queryKey: ["admin-store"], queryFn: async () => (await supabase.from("store_products").select("*").order("created_at", { ascending: false })).data ?? [] });
   const { data: stores } = useQuery({ queryKey: ["admin-stores"], queryFn: async () => (await supabase.from("stores").select("*, profiles(username)").order("created_at", { ascending: false })).data ?? [] });
-  const [editing, setEditing] = useState<any>(null);
-  const blank = { name: "", description: "", price: 0, screenshots: [] as string[], payment_method: "sellauth", sellauth_url: "", paypal_url: "", ltc_address: "" };
-  const save = useMutation({
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [editingStore, setEditingStore] = useState<any>(null);
+  const [openStoreId, setOpenStoreId] = useState<string | null>(null);
+  const blank = { name: "", description: "", price: 0, screenshots: [] as string[], payment_method: "sellauth", sellauth_url: "", paypal_url: "", ltc_address: "", store_id: null as string | null };
+
+  const saveProduct = useMutation({
     mutationFn: async (f: any) => {
       const screenshots: string[] = Array.isArray(f.screenshots) ? f.screenshots.filter(Boolean) : [];
       const payload: any = {
@@ -420,73 +423,158 @@ function StorePanel() {
       if (f.id) { const { error } = await supabase.from("store_products").update(payload).eq("id", f.id); if (error) throw error; }
       else {
         const slug = `${slugify(f.name || "product")}-${Math.random().toString(36).slice(2, 6)}`;
-        const { error } = await supabase.from("store_products").insert({ ...payload, slug });
+        const { error } = await supabase.from("store_products").insert({ ...payload, slug, store_id: f.store_id ?? null });
         if (error) throw error;
       }
     },
-    onSuccess: () => { toast.success("Saved"); setEditing(null); qc.invalidateQueries({ queryKey: ["admin-store"] }); },
+    onSuccess: () => { toast.success("Saved"); setEditingProduct(null); qc.invalidateQueries({ queryKey: ["admin-store"] }); },
     onError: (e: any) => toast.error(e.message),
   });
-  const del = useMutation({ mutationFn: async (id: string) => { await supabase.from("store_products").delete().eq("id", id); }, onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-store"] }) });
+  const delProduct = useMutation({
+    mutationFn: async (id: string) => { const { error } = await supabase.from("store_products").delete().eq("id", id); if (error) throw error; },
+    onSuccess: () => { toast.success("Product deleted"); qc.invalidateQueries({ queryKey: ["admin-store"] }); },
+  });
+
+  const saveStore = useMutation({
+    mutationFn: async (s: any) => {
+      const { error } = await supabase.from("stores").update({ name: s.name, logo: s.logo || null }).eq("id", s.id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast.success("Store updated"); setEditingStore(null); qc.invalidateQueries({ queryKey: ["admin-stores"] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
   const delStore = async (id: string, name: string) => {
     if (!confirm(`Delete entire store "${name}" and all its products?`)) return;
     try { await delStoreFn({ data: { id } }); toast.success("Store deleted"); qc.invalidateQueries({ queryKey: ["admin-stores"] }); qc.invalidateQueries({ queryKey: ["admin-store"] }); }
     catch (e: any) { toast.error(e.message); }
   };
 
+  const productsByStore = (sid: string | null) => (products ?? []).filter((p: any) => (p.store_id ?? null) === sid);
+  const orphanProducts = productsByStore(null);
+
+  const renderProductEditor = () => editingProduct && (
+    <div className="card-elevated p-6 space-y-3 border-2 border-primary/40">
+      <h3 className="font-semibold">{editingProduct.id ? "Edit product" : "New product"}</h3>
+      <Field label="Name"><Input value={editingProduct.name} onChange={e => setEditingProduct({ ...editingProduct, name: e.target.value })} /></Field>
+      <Field label="Description"><Textarea value={editingProduct.description ?? ""} onChange={e => setEditingProduct({ ...editingProduct, description: e.target.value })} /></Field>
+      <Field label="Price (USD)"><Input type="number" step="0.01" value={editingProduct.price} onChange={e => setEditingProduct({ ...editingProduct, price: e.target.value })} /></Field>
+      <Field label="Showcase">
+        <ScreenshotUploader value={editingProduct.screenshots ?? (editingProduct.image ? [editingProduct.image] : [])} onChange={urls => setEditingProduct({ ...editingProduct, screenshots: urls })} />
+      </Field>
+      <Field label="Payment method">
+        <Select value={editingProduct.payment_method} onValueChange={v => setEditingProduct({ ...editingProduct, payment_method: v })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="sellauth">SellAuth</SelectItem><SelectItem value="paypal">PayPal</SelectItem><SelectItem value="ltc">LTC</SelectItem></SelectContent>
+        </Select>
+      </Field>
+      {editingProduct.payment_method === "sellauth" && <Field label="SellAuth URL"><Input value={editingProduct.sellauth_url ?? ""} onChange={e => setEditingProduct({ ...editingProduct, sellauth_url: e.target.value })} /></Field>}
+      {editingProduct.payment_method === "paypal" && <Field label="PayPal URL"><Input value={editingProduct.paypal_url ?? ""} onChange={e => setEditingProduct({ ...editingProduct, paypal_url: e.target.value })} /></Field>}
+      {editingProduct.payment_method === "ltc" && <Field label="LTC address"><Input value={editingProduct.ltc_address ?? ""} onChange={e => setEditingProduct({ ...editingProduct, ltc_address: e.target.value })} /></Field>}
+      <div className="flex gap-2"><Button onClick={() => saveProduct.mutate(editingProduct)} className="gradient-primary text-white border-0">Save</Button><Button variant="outline" onClick={() => setEditingProduct(null)}>Cancel</Button></div>
+    </div>
+  );
+
   return (
     <div className="mt-6 space-y-6">
-      <div className="space-y-2">
-        <h2 className="text-xl font-semibold">Stores ({stores?.length ?? 0})</h2>
-        {(stores ?? []).map((s: any) => (
-          <div key={s.id} className="card-elevated p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {s.logo && <img src={s.logo} alt="" className="h-10 w-10 rounded object-cover border border-border" />}
-              <div>
-                <div className="font-semibold">{s.name}</div>
-                <div className="text-xs text-muted-foreground">by {s.profiles?.username ?? s.owner_id.slice(0, 8)} · /{s.slug}</div>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Stores ({stores?.length ?? 0})</h2>
+          <Button onClick={() => setEditingProduct({ ...blank })} className="gradient-primary text-white border-0"><Plus className="h-4 w-4 mr-1" />New product</Button>
+        </div>
+
+        {editingProduct && !editingProduct.store_id && !editingProduct.id && renderProductEditor()}
+
+        {(stores ?? []).map((s: any) => {
+          const sp = productsByStore(s.id);
+          const open = openStoreId === s.id;
+          return (
+            <div key={s.id} className="card-elevated p-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  {s.logo && <img src={s.logo} alt="" className="h-10 w-10 rounded object-cover border border-border" />}
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate">{s.name}</div>
+                    <div className="text-xs text-muted-foreground truncate">by {s.profiles?.username ?? s.owner_id.slice(0, 8)} · /{s.slug} · {sp.length} product{sp.length === 1 ? "" : "s"}</div>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" variant="outline" onClick={() => setOpenStoreId(open ? null : s.id)}>
+                    {open ? "Hide products" : `Show products (${sp.length})`}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditingStore({ id: s.id, name: s.name, logo: s.logo ?? "" })}>Edit</Button>
+                  <Button size="sm" variant="outline" onClick={() => delStore(s.id, s.name)}><Trash2 className="h-4 w-4 mr-1" />Delete store</Button>
+                </div>
               </div>
+
+              {editingStore?.id === s.id && (
+                <div className="mt-3 border-t border-border pt-3 space-y-2">
+                  <Field label="Store name"><Input value={editingStore.name} onChange={e => setEditingStore({ ...editingStore, name: e.target.value })} /></Field>
+                  <Field label="Logo URL"><Input value={editingStore.logo ?? ""} onChange={e => setEditingStore({ ...editingStore, logo: e.target.value })} /></Field>
+                  <div className="flex gap-2"><Button size="sm" onClick={() => saveStore.mutate(editingStore)} className="gradient-primary text-white border-0">Save</Button><Button size="sm" variant="outline" onClick={() => setEditingStore(null)}>Cancel</Button></div>
+                </div>
+              )}
+
+              {open && (
+                <div className="mt-3 border-t border-border pt-3 space-y-2">
+                  <div className="flex justify-end">
+                    <Button size="sm" variant="outline" onClick={() => setEditingProduct({ ...blank, store_id: s.id })}>
+                      <Plus className="h-4 w-4 mr-1" />Add product to this store
+                    </Button>
+                  </div>
+                  {editingProduct?.store_id === s.id && renderProductEditor()}
+                  {sp.length === 0 && <div className="text-xs text-muted-foreground text-center py-4">No products in this store.</div>}
+                  {sp.map((p: any) => {
+                    const isEditing = editingProduct?.id === p.id;
+                    return (
+                      <div key={p.id}>
+                        <div className="border border-border rounded p-3 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {(p.screenshots?.[0] || p.image) && <img src={p.screenshots?.[0] || p.image} alt="" className="h-10 w-10 rounded object-cover border border-border" />}
+                            <div className="min-w-0">
+                              <div className="font-semibold text-sm truncate">{p.name}</div>
+                              <div className="text-xs text-muted-foreground truncate">${Number(p.price).toFixed(2)} · {p.payment_method} · /{p.slug}</div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setEditingProduct({ ...p, screenshots: p.screenshots?.length ? p.screenshots : (p.image ? [p.image] : []) })}>Edit</Button>
+                            <Button size="sm" variant="outline" onClick={() => { if (confirm(`Delete product "${p.name}"?`)) delProduct.mutate(p.id); }}><Trash2 className="h-4 w-4" /></Button>
+                          </div>
+                        </div>
+                        {isEditing && <div className="mt-2">{renderProductEditor()}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-            <Button size="sm" variant="outline" onClick={() => delStore(s.id, s.name)}><Trash2 className="h-4 w-4 mr-1" />Delete store</Button>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Products ({data?.length ?? 0})</h2>
-          <Button onClick={() => setEditing({ ...blank })} className="gradient-primary text-white border-0"><Plus className="h-4 w-4 mr-1" />New product</Button>
+      {orphanProducts.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold">Standalone products ({orphanProducts.length})</h2>
+          <p className="text-xs text-muted-foreground">Products not attached to a store.</p>
+          {orphanProducts.map((p: any) => {
+            const isEditing = editingProduct?.id === p.id;
+            return (
+              <div key={p.id}>
+                <div className="card-elevated p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {(p.screenshots?.[0] || p.image) && <img src={p.screenshots?.[0] || p.image} alt="" className="h-12 w-12 rounded object-cover border border-border" />}
+                    <div><div className="font-semibold">{p.name}</div><div className="text-xs text-muted-foreground">${Number(p.price).toFixed(2)} · {p.payment_method} · /{p.slug}</div></div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setEditingProduct({ ...p, screenshots: p.screenshots?.length ? p.screenshots : (p.image ? [p.image] : []) })}>Edit</Button>
+                    <Button size="sm" variant="outline" onClick={() => { if (confirm(`Delete "${p.name}"?`)) delProduct.mutate(p.id); }}><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+                {isEditing && <div className="mt-2">{renderProductEditor()}</div>}
+              </div>
+            );
+          })}
         </div>
-        {editing && (
-          <div className="card-elevated p-6 space-y-3">
-            <Field label="Name"><Input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })} /></Field>
-            <Field label="Description"><Textarea value={editing.description} onChange={e => setEditing({ ...editing, description: e.target.value })} /></Field>
-            <Field label="Price (USD)"><Input type="number" step="0.01" value={editing.price} onChange={e => setEditing({ ...editing, price: e.target.value })} /></Field>
-            <Field label="Showcase (max 5 — click thumbnail to set cover)">
-              <ScreenshotUploader value={editing.screenshots ?? (editing.image ? [editing.image] : [])} onChange={urls => setEditing({ ...editing, screenshots: urls })} />
-            </Field>
-            <Field label="Payment method">
-              <Select value={editing.payment_method} onValueChange={v => setEditing({ ...editing, payment_method: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="sellauth">SellAuth</SelectItem><SelectItem value="paypal">PayPal</SelectItem><SelectItem value="ltc">LTC</SelectItem></SelectContent>
-              </Select>
-            </Field>
-            {editing.payment_method === "sellauth" && <Field label="SellAuth URL"><Input value={editing.sellauth_url ?? ""} onChange={e => setEditing({ ...editing, sellauth_url: e.target.value })} /></Field>}
-            {editing.payment_method === "paypal" && <Field label="PayPal URL"><Input value={editing.paypal_url ?? ""} onChange={e => setEditing({ ...editing, paypal_url: e.target.value })} /></Field>}
-            {editing.payment_method === "ltc" && <Field label="LTC address"><Input value={editing.ltc_address ?? ""} onChange={e => setEditing({ ...editing, ltc_address: e.target.value })} /></Field>}
-            <div className="flex gap-2"><Button onClick={() => save.mutate(editing)} className="gradient-primary text-white border-0">Save</Button><Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button></div>
-          </div>
-        )}
-        {(data ?? []).map((p: any) => (
-          <div key={p.id} className="card-elevated p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {(p.screenshots?.[0] || p.image) && <img src={p.screenshots?.[0] || p.image} alt="" className="h-12 w-12 rounded object-cover border border-border" />}
-              <div><div className="font-semibold">{p.name}</div><div className="text-xs text-muted-foreground">${Number(p.price).toFixed(2)} · {p.payment_method} · /{p.slug}</div></div>
-            </div>
-            <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setEditing({ ...p, screenshots: p.screenshots?.length ? p.screenshots : (p.image ? [p.image] : []) })}>Edit</Button><Button size="sm" variant="outline" onClick={() => del.mutate(p.id)}><Trash2 className="h-4 w-4" /></Button></div>
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
