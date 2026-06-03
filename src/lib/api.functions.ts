@@ -156,7 +156,11 @@ export const redeemPremiumCode = createServerFn({ method: "POST" })
     if (row.revoked) throw new Error("Code revoked");
     if (row.used_by) throw new Error("Code already used");
     await (supabaseAdmin as any).from("premium_codes").update({ used_by: userId, used_at: new Date().toISOString() }).eq("id", row.id);
-    await supabaseAdmin.from("profiles").update({ is_premium: true, premium_since: new Date().toISOString() } as any).eq("id", userId);
+   const { data: up, error: upErr } = await supabaseAdmin.from("profiles").upsert(
+  { id: userId, is_premium: true, premium_since: new Date().toISOString() } as any,
+  { onConflict: "id" }
+).select("is_premium").single();
+if (upErr || !up?.is_premium) throw new Error("Couldn't activate Premium — contact admin");
     await (supabaseAdmin as any).from("notifications").insert({
       recipient_id: userId,
       title: "💎 Welcome to Premium!",
