@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useServerFn } from "@tanstack/react-start";
-import { requestPremium, redeemPremiumCode } from "@/lib/api.functions";
+import { requestPremium, redeemPremiumCode, requestPremiumManual } from "@/lib/api.functions";
 import { toast } from "sonner";
 import { Crown, Check, Sparkles, Store, Pin, Zap, Heart, ShieldCheck, Copy, Gift } from "lucide-react";
 
